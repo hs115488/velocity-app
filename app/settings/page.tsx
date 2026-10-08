@@ -9,7 +9,7 @@ import { Card, SectionLabel, SubScreen } from "@/components/ui";
 import { APP_VERSION, SUPPORT_EMAIL } from "@/lib/app-config";
 import { lightsOut } from "@/lib/playbook";
 import { canChangeStandardToday, displayClock, upcomingStandard } from "@/lib/velocity";
-import { disableReminders, enableReminders, isNative, remindersEnabled, scheduleReminders } from "@/lib/native";
+import { disableReminders, emailSupport, enableReminders, isNative, remindersEnabled, scheduleReminders } from "@/lib/native";
 import { FOCUS_SHORTCUTS, focusEnabled, openShortcutsEditor, runFocus, setFocusEnabled } from "@/lib/focus";
 
 function CopyName({ name }: { name: string }) {
@@ -290,9 +290,13 @@ export default function SettingsPage() {
               <ChevronRight className="h-4 w-4 text-faint" />
             </Link>
             {SUPPORT_EMAIL && (
-              <Row label="Support">
-                <span className="select-all text-[15px] text-muted">{SUPPORT_EMAIL}</span>
-              </Row>
+              <button
+                onClick={() => void emailSupport()}
+                className="flex w-full items-center justify-between px-4 py-3.5 text-left text-[16px]"
+              >
+                Email support
+                <ChevronRight className="h-4 w-4 text-faint" />
+              </button>
             )}
             <Row label="Version">
               <span className="text-[15px] tabular-nums text-muted">{APP_VERSION}</span>

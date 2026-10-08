@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Card, SubScreen } from "@/components/ui";
-import { APP_NAME, PRIVACY_UPDATED, SUPPORT_EMAIL } from "@/lib/app-config";
+import { APP_NAME, PRIVACY_UPDATED } from "@/lib/app-config";
 
 export const metadata = { title: `Privacy Policy · ${APP_NAME}` };
 
@@ -28,8 +28,8 @@ export default function PrivacyPage() {
 
         <Section title="What the app stores">
           <p>
-            Your wake-up logs, training check-ins, deep work sessions and settings are saved in the app&apos;s local storage
-            on your device. They are never sent to us or to anyone else.
+            Your wake-up logs, training check-ins, deep work sessions, tasks and settings are saved in the app&apos;s
+            storage on your device. They are never sent to us or to anyone else.
           </p>
         </Section>
 
@@ -73,13 +73,9 @@ export default function PrivacyPage() {
           <p>If this policy changes, the date at the top will change and the new policy will be posted here.</p>
         </Section>
 
-        {SUPPORT_EMAIL && (
-          <Section title="Contact">
-            <p>
-              Questions: <span className="select-all font-medium text-ink">{SUPPORT_EMAIL}</span>
-            </p>
-          </Section>
-        )}
+        <Section title="Contact">
+          <p>Questions about this policy: go to Settings and tap Email support.</p>
+        </Section>
       </Card>
     </SubScreen>
   );

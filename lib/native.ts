@@ -2,12 +2,14 @@
 // Native iPhone features via Capacitor. Every function is a safe no-op in a
 // normal browser, so the same code runs on the web and in the app.
 
+import { AppLauncher } from "@capacitor/app-launcher";
 import { Capacitor } from "@capacitor/core";
 import { Haptics, ImpactStyle, NotificationType } from "@capacitor/haptics";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import type { UserProfile } from "@/types/velocity";
 import { lightsOut } from "@/lib/playbook";
 import { displayClock } from "@/lib/velocity";
+import { APP_VERSION, SUPPORT_EMAIL } from "@/lib/app-config";
 
 export const isNative = () => Capacitor.isNativePlatform();
 
@@ -127,4 +129,18 @@ export async function disableReminders(): Promise<void> {
   setRemindersFlag(false);
   if (!isNative()) return;
   await LocalNotifications.cancel({ notifications: [{ id: WAKE_ID }, { id: LIGHTS_OUT_ID }] });
+}
+
+// ─── Support ─────────────────────────────────────────────────────────────────
+
+/** Open a new email to support in the user's mail app. The address is never shown on screen. */
+export async function emailSupport(): Promise<void> {
+  if (!SUPPORT_EMAIL) return;
+  const subject = encodeURIComponent(`Velocity ${APP_VERSION} support`);
+  const url = `mailto:${SUPPORT_EMAIL}?subject=${subject}`;
+  if (isNative()) {
+    await AppLauncher.openUrl({ url }).catch(() => {});
+  } else {
+    window.location.href = url;
+  }
 }

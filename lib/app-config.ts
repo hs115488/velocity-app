@@ -11,4 +11,4 @@ export const APP_VERSION = "1.0.0";
 export const SUPPORT_EMAIL = "haresh.singh.97@gmail.com";
 
 /** When the privacy policy last changed. Update it whenever the policy text changes. */
-export const PRIVACY_UPDATED = "October 3, 2026";
+export const PRIVACY_UPDATED = "October 7, 2026";
