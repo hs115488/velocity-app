@@ -1,3 +1,5 @@
+import { Capacitor } from "@capacitor/core";
+import { Preferences } from "@capacitor/preferences";
 import { type DailyLog, type TimedTask, type UserProfile, type VelocityState } from "@/types/velocity";
 import { createDefaultProfile, createEmptyLog, finalizeLog } from "./velocity";
 
@@ -105,25 +107,72 @@ export function parseState(raw: string | null): VelocityState {
   }
 }
 
-export function loadState(): VelocityState {
-  if (typeof window === "undefined") return { version: 1, profile: createDefaultProfile(), logs: {} };
+// ─── Where progress is saved ─────────────────────────────────────────────────
+// iPhone app: Capacitor Preferences (native UserDefaults). The web view's
+// localStorage is transient there: iOS can reclaim it when storage runs low,
+// which would silently erase a user's streak. localStorage is kept as a
+// mirror (and is the only store on the web).
+
+const isNative = () => Capacitor.isNativePlatform();
+
+function readLocal(): string | null {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return parseState(raw);
+    return localStorage.getItem(STORAGE_KEY);
   } catch {
-    return { version: 1, profile: createDefaultProfile(), logs: {} };
+    return null;
   }
 }
 
-export function saveState(state: VelocityState): void {
-  if (typeof window === "undefined") return;
+function writeLocal(raw: string): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    localStorage.setItem(STORAGE_KEY, raw);
   } catch {
-    // Silently fail if storage is full or unavailable
+    // Full or unavailable: on the iPhone, Preferences still holds the data.
   }
 }
 
-export function clearState(): void {
-  localStorage.removeItem(STORAGE_KEY);
+export async function loadState(): Promise<VelocityState> {
+  if (typeof window === "undefined") return parseState(null);
+  if (!isNative()) return parseState(readLocal());
+
+  try {
+    const { value } = await Preferences.get({ key: STORAGE_KEY });
+    if (value !== null) return parseState(value);
+    // First launch since the move to native storage: bring over what the web view saved.
+    const legacy = readLocal();
+    if (legacy !== null) await Preferences.set({ key: STORAGE_KEY, value: legacy });
+    return parseState(legacy);
+  } catch {
+    return parseState(readLocal());
+  }
+}
+
+/** Writes run one after another, so a slow write can never land after a newer one. */
+let writes: Promise<void> = Promise.resolve();
+
+export function saveState(state: VelocityState): Promise<void> {
+  if (typeof window === "undefined") return Promise.resolve();
+  const raw = JSON.stringify(state);
+  writes = writes.then(async () => {
+    writeLocal(raw);
+    if (!isNative()) return;
+    try {
+      await Preferences.set({ key: STORAGE_KEY, value: raw });
+    } catch {
+      // Kept in the localStorage mirror; the next save tries again.
+    }
+  });
+  return writes;
+}
+
+export function clearState(): Promise<void> {
+  writes = writes.then(async () => {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      // Unavailable: nothing to clear.
+    }
+    if (isNative()) await Preferences.remove({ key: STORAGE_KEY }).catch(() => {});
+  });
+  return writes;
 }

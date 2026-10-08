@@ -52,16 +52,23 @@ export function useVelocity() {
   const [hydrated, setHydrated] = useState(false);
   const [today, setToday] = useState<DateKey>(() => toDateKey());
 
-  // Load once on the client (localStorage doesn't exist during SSR).
+  // Load once on the client: native storage on the iPhone, localStorage on the web.
   // Sessions left running on a past day (app closed mid-block) are closed out.
   useEffect(() => {
-    setState(rollover(loadState(), toDateKey(), new Date()));
-    setHydrated(true);
+    let live = true;
+    loadState().then((loaded) => {
+      if (!live) return;
+      setState(rollover(loaded, toDateKey(), new Date()));
+      setHydrated(true);
+    });
+    return () => {
+      live = false;
+    };
   }, []);
 
-  // Persist every change after hydration.
+  // Persist every change after hydration. Writes are queued in order by the storage layer.
   useEffect(() => {
-    if (hydrated) saveState(state);
+    if (hydrated) void saveState(state);
   }, [state, hydrated]);
 
   // Another tab wrote: adopt its state so the next write here doesn't overwrite it.
@@ -237,7 +244,7 @@ export function useVelocity() {
   }, []);
 
   const resetAll = useCallback(() => {
-    clearState();
+    void clearState(); // queued ahead of the save of the fresh state below
     setState(createInitialState());
   }, []);
 
