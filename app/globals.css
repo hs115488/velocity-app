@@ -1,0 +1,86 @@
+@import "tailwindcss";
+
+/*
+ * Design tokens. Text colors meet WCAG AA (4.5:1) on the surfaces they are used on.
+ * Design tokens. Tailwind v4 turns each --color-* into utilities
+ * (bg-card, text-muted, border-line, ...). Dark mode only swaps the values.
+ */
+@theme {
+  --color-bg: #f5f4f0;
+  --color-card: #ffffff;
+  --color-ink: #17171b;
+  --color-muted: #5f5f67;
+  --color-faint: #75757e;
+  --color-line: #e8e6e0;
+  --color-fill: #efede8;
+
+  --color-accent: #c2410c;
+  --color-accent-soft: #fdede3;
+  --color-good: #237a36;
+  --color-good-soft: #e5f3e8;
+  --color-bad: #c92a2a;
+  --color-bad-soft: #fbe9e9;
+  --color-amber: #8a5200;
+  --color-amber-soft: #fbf0dc;
+  --color-calm: #4263eb;
+  --color-calm-soft: #e8edfd;
+
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-bg: #0d0d0f;
+    --color-card: #17171a;
+    --color-ink: #f4f4f5;
+    --color-muted: #a1a1aa;
+    --color-faint: #8b8b94;
+    --color-line: #26262a;
+    --color-fill: #222226;
+
+    --color-accent: #ff7a33;
+    --color-accent-soft: #35200f;
+    --color-good: #4ade80;
+    --color-good-soft: #13291a;
+    --color-bad: #f87171;
+    --color-bad-soft: #321616;
+    --color-amber: #f6c453;
+    --color-amber-soft: #30260f;
+    --color-calm: #8ea2ff;
+    --color-calm-soft: #1b2040;
+    color-scheme: dark;
+  }
+}
+
+/* Base styles live in a layer so Tailwind utilities can always override them. */
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    background: var(--color-bg);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  button {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: default;
+  }
+}
+
+/*
+ * Invisible touch margin: grows a control's tappable area to at least 44pt
+ * (Apple's minimum) without changing how it looks.
+ */
+@layer components {
+  .hit { position: relative; }
+  .hit::after { content: ""; position: absolute; inset: -8px; }
+  .hit-y { position: relative; }
+  .hit-y::after { content: ""; position: absolute; inset: -6px 0; }
+}
