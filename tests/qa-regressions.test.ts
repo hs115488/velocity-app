@@ -104,6 +104,26 @@ describe("S1/S2: the standard can't be bent mid-day", () => {
   });
 });
 
+describe("First day: a new user can set their standard the same day", () => {
+  it("on install day, with nothing logged, a change applies right away even after the window closed", () => {
+    const s = state([], { startDate: TODAY });
+    const next = changeStandard(s, { wakeTarget: "14:30" }, TODAY, at(14, 0));
+    expect(next.profile).toMatchObject({ wakeTarget: "14:30", pending: null });
+    expect(evaluateWake(next.profile, at(14, 10)).onTime).toBe(true);
+  });
+
+  it("on install day, once anything is logged, changes wait for tomorrow", () => {
+    const gym = { ...createEmptyLog(TODAY), gym: { checkedInAt: at(13).toISOString() } };
+    const next = changeStandard(state([gym], { startDate: TODAY }), { wakeTarget: "14:30" }, TODAY, at(14, 0));
+    expect(next.profile.wakeTarget).toBe("05:30");
+  });
+
+  it("from day two on, a closed window still can't be moved", () => {
+    const next = changeStandard(state([], { startDate: addDays(TODAY, -1) }), { wakeTarget: "14:30" }, TODAY, at(14, 0));
+    expect(next.profile.wakeTarget).toBe("05:30");
+  });
+});
+
 describe("History: changing the target never rewrites past days", () => {
   it("raising the target later does not break a past executed day", () => {
     const yesterday = addDays(TODAY, -1);

@@ -247,7 +247,11 @@ export function closeStaleSessions(state: VelocityState, today: DateKey, now: Da
 export type Standard = Pick<UserProfile, "wakeTarget" | "wakeGraceMinutes" | "deepWorkTargetMinutes">;
 export const STANDARD_KEYS = ["wakeTarget", "wakeGraceMinutes", "deepWorkTargetMinutes"] as const;
 
-/** A day is untouched if nothing is logged and the wake window hasn't opened yet. */
+/**
+ * The standard can change today only while today is untouched (nothing logged) and either the
+ * wake window hasn't opened yet or this is the user's first day: someone who installs in the
+ * afternoon can set their wake time and use the app the same day.
+ */
 export function canChangeStandardToday(log: DailyLog | undefined, profile: UserProfile, now: Date): boolean {
   const touched =
     !!log &&
@@ -255,7 +259,8 @@ export function canChangeStandardToday(log: DailyLog | undefined, profile: UserP
       log.gym !== null ||
       log.deepWork.sessions.length > 0 ||
       (log.tasks ?? []).some((t) => t.spentSeconds > 0 || t.startedAt !== null));
-  return !touched && wakeWindowState(profile, now) === "early";
+  if (touched) return false;
+  return wakeWindowState(profile, now) === "early" || profile.startDate === toDateKey(now);
 }
 
 /** The standard that will apply tomorrow: today's plus any pending change. */
