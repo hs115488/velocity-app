@@ -8,7 +8,7 @@ export const APP_VERSION = "1.0.0";
  * Support address shown in the privacy policy and Settings.
  * Required by the App Store: fill this in before you submit.
  */
-export const SUPPORT_EMAIL = "";
+export const SUPPORT_EMAIL = "haresh.singh.97@gmail.com";
 
 /** When the privacy policy last changed. Update it whenever the policy text changes. */
 export const PRIVACY_UPDATED = "October 3, 2026";
