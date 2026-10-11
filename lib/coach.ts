@@ -15,8 +15,10 @@ import {
   isExecuted,
   minutesToClock,
   upcomingStandard,
+  isWakeSpillover,
   wakeWindowClosesAt,
   wakeWindowOpensAt,
+  wakeWindowState,
 } from "@/lib/velocity";
 import { lightsOut } from "@/lib/playbook";
 
@@ -139,8 +141,22 @@ export function getDirective(state: VelocityState, today: DateKey, now: Date, st
     };
   }
 
+  const yesterday = addDays(today, -1);
+  if (
+    isWakeSpillover(profile, now) &&
+    yesterday >= profile.startDate &&
+    !state.logs[yesterday]?.wake
+  ) {
+    return {
+      tone: "urgent",
+      headline: "Feet on the floor.",
+      body: `Window closes at ${displayClock(minutesToClock(windowClose))}. Stand up, log it, then get outside light within the hour.`,
+      focus: "wake",
+    };
+  }
+
   // Small hours before the window: the only job is sleep.
-  if (!log.wake && nowMin < windowOpen) {
+  if (!log.wake && wakeWindowState(profile, now) === "early") {
     return {
       tone: "rest",
       headline: "Go to sleep.",
@@ -149,7 +165,7 @@ export function getDirective(state: VelocityState, today: DateKey, now: Date, st
     };
   }
 
-  if (!log.wake && nowMin <= windowClose) {
+  if (!log.wake && wakeWindowState(profile, now) === "open") {
     return {
       tone: "urgent",
       headline: "Feet on the floor.",

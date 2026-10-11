@@ -88,17 +88,41 @@ export function removeTask(log: DailyLog, id: string): DailyLog {
   return withTasks(log, tasksOf(log).filter((t) => t.id !== id));
 }
 
+/** Unfinished tasks from `from` whose title isn't already on `log`. */
+export function tasksToCarry(log: DailyLog, from: DailyLog | undefined): TimedTask[] {
+  const existing = new Set(tasksOf(log).map((t) => t.title));
+  return tasksOf(from).filter((t) => !t.done && !existing.has(t.title));
+}
+
+/**
+ * Minutes of a task to subtract when copying it forward.
+ * A stretch still running is measured through the end of that day, not up to
+ * `now`, so time after midnight isn't charged against yesterday's budget.
+ */
+function spentMinutesForCarry(task: TimedTask, from: DailyLog, now: Date): number {
+  if (!task.startedAt) return task.spentSeconds / 60;
+  const [y, m, d] = from.date.split("-").map(Number);
+  let at = now;
+  if (Number.isFinite(y) && Number.isFinite(m) && Number.isFinite(d)) {
+    const end = new Date(y, m - 1, d, 23, 59, 59, 999);
+    if (!Number.isNaN(end.getTime()) && end.getTime() < now.getTime()) at = end;
+  }
+  return pause(task, at).spentSeconds / 60;
+}
+
 /**
  * Copy unfinished tasks from another day onto this one, with fresh ids and
  * the time already spent subtracted from the budget (at least 5 minutes left).
+ * Tasks already on this day (same title) are left alone, so bringing work
+ * forward stays safe after you've added something today.
  */
 export function carryOver(log: DailyLog, from: DailyLog | undefined, now: Date, newId: () => string): DailyLog {
-  const unfinished = tasksOf(from).filter((t) => !t.done);
-  if (unfinished.length === 0) return log;
+  const unfinished = tasksToCarry(log, from);
+  if (unfinished.length === 0 || !from) return log;
   const copies: TimedTask[] = unfinished.map((t) => ({
     id: newId(),
     title: t.title,
-    minutes: Math.max(5, Math.ceil(t.minutes - taskElapsed(t, now) / 60)),
+    minutes: Math.max(5, Math.ceil(t.minutes - spentMinutesForCarry(t, from, now))),
     spentSeconds: 0,
     startedAt: null,
     done: false,

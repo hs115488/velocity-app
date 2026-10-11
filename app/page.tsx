@@ -2,11 +2,15 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
-import { Brain, Check, ChevronRight, Dumbbell, Flame, Settings, Sunrise } from "lucide-react";
+import { Check, ChevronRight, Settings } from "lucide-react";
 import { UNDO_WINDOW_MS, useVelocity } from "@/hooks/use-velocity";
 import { cancelTaskAlarm, isNative, scheduleTaskAlarm, tapLight, tapSuccess } from "@/lib/native";
 import { nextTask, runningTask, tasksOf, taskRemaining } from "@/lib/tasks";
 import { TaskList } from "@/components/task-list";
+import { Onboarding } from "@/components/onboarding";
+import { isPro, trialAvailable, trialEndsSoon } from "@/lib/billing";
+import { lightsOut } from "@/lib/playbook";
+import { DayShare } from "@/components/day-share";
 import { focusEnabled, runFocus } from "@/lib/focus";
 import { getCoachReport, type DirectiveTone, type InsightTone } from "@/lib/coach";
 import {
@@ -17,10 +21,12 @@ import {
   formatDuration,
   fromDateKey,
   isExecuted,
+  isWakeSpillover,
   wakeWindowState,
   deepWorkTargetFor,
   displayClock,
   minutesToClock,
+  upcomingStandard,
   wakeWindowClosesAt,
   wakeWindowOpensAt,
 } from "@/lib/velocity";
@@ -50,34 +56,49 @@ const WEEKDAY = ["S", "M", "T", "W", "T", "F", "S"];
 
 // ─── Small building blocks ───────────────────────────────────────────────────
 
-function SectionLabel({ children }: { children: ReactNode }) {
-  return <h2 className="px-1 pb-2 text-[13px] font-semibold uppercase tracking-[0.06em] text-muted">{children}</h2>;
+function SectionLabel({ index, children }: { index: string; children: ReactNode }) {
+  return (
+    <h2 className="flex items-center gap-3 px-1 pb-3">
+      <span className="font-[family-name:var(--font-display)] text-[20px] italic leading-none text-accent">{index}</span>
+      <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted">{children}</span>
+      <span className="h-px flex-1 bg-line" />
+    </h2>
+  );
+}
+
+function DayDial({ wake, gym, deep }: { wake: boolean; gym: boolean; deep: boolean }) {
+  const size = 132;
+  const stroke = 11;
+  const r = (size - stroke) / 2;
+  const c = 2 * Math.PI * r;
+  const arc = c * (100 / 360);
+  const arcs = [
+    { on: wake, color: "var(--dial-wake)" },
+    { on: gym, color: "var(--dial-train)" },
+    { on: deep, color: "var(--dial-deep)" },
+  ];
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} aria-hidden>
+      {arcs.map((segment, i) => (
+        <circle
+          key={i}
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke={segment.on ? segment.color : "var(--dial-off)"}
+          strokeWidth={stroke}
+          strokeLinecap="round"
+          strokeDasharray={`${arc} ${c - arc}`}
+          transform={`rotate(${-90 + i * 120} ${size / 2} ${size / 2})`}
+        />
+      ))}
+    </svg>
+  );
 }
 
 function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-[22px] bg-card shadow-[0_1px_2px_rgba(0,0,0,0.04)] ${className}`}>{children}</div>;
-}
-
-function Ring({ value, size = 112, stroke = 10 }: { value: number; size?: number; stroke?: number }) {
-  const r = (size - stroke) / 2;
-  const c = 2 * Math.PI * r;
-  return (
-    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90" aria-hidden>
-      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--color-fill)" strokeWidth={stroke} />
-      <circle
-        cx={size / 2}
-        cy={size / 2}
-        r={r}
-        fill="none"
-        stroke={value >= 1 ? "var(--color-good)" : "var(--color-accent)"}
-        strokeWidth={stroke}
-        strokeLinecap="round"
-        strokeDasharray={c}
-        strokeDashoffset={c * (1 - Math.min(1, Math.max(0, value)))}
-        style={{ transition: "stroke-dashoffset 700ms cubic-bezier(.2,.8,.2,1)" }}
-      />
-    </svg>
-  );
+  return <div className={`card ${className}`}>{children}</div>;
 }
 
 function PillButton({
@@ -92,7 +113,7 @@ function PillButton({
   variant?: "primary" | "soft";
 }) {
   const styles =
-    variant === "primary" ? "bg-ink text-bg" : "bg-accent-soft text-accent";
+    variant === "primary" ? "btn-accent" : "bg-accent-soft text-accent";
   return (
     <button
       onClick={onClick}
@@ -113,16 +134,16 @@ function DoneBadge() {
 }
 
 function TaskRow({
-  icon,
-  tint,
+  index,
+  bar,
   title,
   detail,
   detailTone = "muted",
   action,
   footer,
 }: {
-  icon: ReactNode;
-  tint: string;
+  index: string;
+  bar: string;
   title: string;
   detail: ReactNode;
   detailTone?: "muted" | "bad" | "good";
@@ -131,12 +152,15 @@ function TaskRow({
 }) {
   const detailColor = detailTone === "bad" ? "text-bad" : detailTone === "good" ? "text-good" : "text-muted";
   return (
-    <div className="px-4 py-4">
-      <div className="flex items-center gap-3.5">
-        <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-[14px] ${tint}`}>{icon}</span>
+    <div className="card relative overflow-hidden px-4 py-4">
+      <span className={`absolute bottom-4 left-0 top-4 w-[3px] rounded-full ${bar}`} />
+      <div className="flex items-center gap-3 pl-3">
+        <span className="w-9 shrink-0 font-[family-name:var(--font-display)] text-[28px] italic leading-none text-accent">
+          {index}
+        </span>
         <div className="min-w-0 flex-1">
           <p className="text-[16px] font-semibold leading-tight">{title}</p>
-          <p className={`mt-1 truncate text-[13px] tabular-nums ${detailColor}`}>{detail}</p>
+          <p className={`mt-1 text-[13px] tabular-nums leading-snug ${detailColor}`}>{detail}</p>
         </div>
         {action}
       </div>
@@ -148,7 +172,7 @@ function TaskRow({
 // ─── Screen ──────────────────────────────────────────────────────────────────
 
 export default function Page() {
-  const { hydrated, state, today, profile, todayLog, streak, score, actions } = useVelocity();
+  const { hydrated, state, today, profile, entitlement, todayLog, streak, score, actions } = useVelocity();
   const [now, setNow] = useState(() => new Date());
   const [focusMode, setFocusMode] = useState(false);
 
@@ -164,7 +188,7 @@ export default function Page() {
     logWake: () => (actions.logWake(), tapSuccess()),
     checkInGym: () => (actions.checkInGym(), tapSuccess()),
     // Start the timer first, then hand off to Shortcuts to turn Focus on (no-op if not set up).
-    startDeepWork: () => (actions.startDeepWork(), tapLight(), void runFocus("on")),
+    startDeepWork: () => (actions.startDeepWork(), tapLight(), isPro(entitlement, now) && void runFocus("on")),
     stopDeepWork: () => (actions.stopDeepWork(), tapLight(), void cancelTaskAlarm(), void runFocus("off")),
     undo: (task: "wake" | "gym") => (actions.undo(task), tapLight()),
 
@@ -178,7 +202,7 @@ export default function Page() {
       tapLight();
       void (async () => {
         await scheduleTaskAlarm(task.title, taskRemaining(task, new Date())).catch(() => {});
-        if (!focusAlreadyOn) await runFocus("on");
+        if (!focusAlreadyOn && isPro(entitlement, now)) await runFocus("on");
       })();
     },
     pauseTask: (id: string) => {
@@ -229,7 +253,14 @@ export default function Page() {
     return <div className="min-h-dvh bg-bg" />;
   }
 
+  if (!profile.onboarded) {
+    return <Onboarding onComplete={actions.completeOnboarding} />;
+  }
+
+  const pro = isPro(entitlement, now);
   const coach = getCoachReport(state, today, now, streak);
+  const insights = pro ? coach.insights : coach.insights.filter((insight) => insight.id === "baseline");
+  const lockedPatterns = !pro && coach.insights.some((insight) => insight.id !== "baseline");
   const tone = TONE[coach.directive.tone];
   const doneCount = completedCount(todayLog);
 
@@ -237,6 +268,9 @@ export default function Page() {
   const opensAt = displayClock(minutesToClock(wakeWindowOpensAt(profile)));
   const closesAt = displayClock(minutesToClock(wakeWindowClosesAt(profile)));
   const windowState = wakeWindowState(profile, now);
+  const yesterday = addDays(today, -1);
+  const spillover =
+    isWakeSpillover(profile, now) && yesterday >= profile.startDate && !state.logs[yesterday]?.wake;
   const wakeStamp = stampOf(todayLog.wake);
   const canUndoWake = !!wakeStamp && now.getTime() - new Date(wakeStamp).getTime() < UNDO_WINDOW_MS;
 
@@ -263,7 +297,10 @@ export default function Page() {
           label: `Start “${upNext.title.length > 26 ? `${upNext.title.slice(0, 25)}…` : upNext.title}”`,
           run: () => act.startTask(upNext.id),
         }
-      : { label: "Start deep work", run: act.startDeepWork },
+      : {
+          label: todayLog.deepWork.sessions.length ? "Resume deep work" : "Start deep work",
+          run: act.startDeepWork,
+        },
   };
   const focus = coach.directive.focus ? focusAction[coach.directive.focus] : null;
 
@@ -273,109 +310,156 @@ export default function Page() {
   const dateLine = now.toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" });
 
   return (
-    <main className="mx-auto w-full max-w-[440px] px-4 pb-[calc(env(safe-area-inset-bottom,0px)+40px)] pt-[calc(env(safe-area-inset-top,0px)+20px)]">
-      {/* Header */}
-      <header className="flex items-end justify-between px-1 pb-6">
-        <div>
-          <p className="text-[13px] font-semibold uppercase tracking-[0.06em] text-muted">{dateLine}</p>
-          <h1 className="mt-1 font-[family-name:var(--font-display)] text-[34px] font-bold leading-none tracking-[-0.02em]">
-            Today
-          </h1>
+    <main className="mx-auto w-full max-w-[440px] px-4 pb-[calc(env(safe-area-inset-bottom,0px)+40px)]">
+      <section className="hero-card -mx-4 rounded-b-[40px] rounded-t-none px-5 pb-7 pt-[calc(env(safe-area-inset-top,0px)+18px)]">
+        <div className="pointer-events-none absolute inset-4 z-[1]" aria-hidden>
+          <span className="absolute left-0 top-0 h-4 w-4 border-l border-t border-current opacity-40" />
+          <span className="absolute right-0 top-0 h-4 w-4 border-r border-t border-current opacity-40" />
+          <span className="absolute bottom-0 left-0 h-4 w-4 border-b border-l border-current opacity-40" />
+          <span className="absolute bottom-0 right-0 h-4 w-4 border-b border-r border-current opacity-40" />
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex h-9 items-center gap-1.5 rounded-full bg-card px-3 shadow-[0_1px_2px_rgba(0,0,0,0.04)]">
-            <Flame className={`h-4 w-4 ${streak.current > 0 ? "text-accent" : "text-faint"}`} />
-            <span className="text-[15px] font-bold tabular-nums">{streak.current}</span>
-          </div>
-          <Link
-            href="/settings"
-            aria-label="Settings"
-            className="hit flex h-9 w-9 items-center justify-center rounded-full bg-card shadow-[0_1px_2px_rgba(0,0,0,0.04)] transition active:scale-95"
-          >
-            <Settings className="h-[18px] w-[18px] text-muted" />
-          </Link>
-        </div>
-      </header>
-
-      <div className="flex flex-col gap-7">
-        {/* Hero: today's progress + streak */}
-        <Card className="p-5">
-          <div className="flex items-center gap-5">
-            <div className="relative shrink-0">
-              <Ring value={doneCount / 3} />
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-[28px] font-bold leading-none tabular-nums">
-                  {doneCount}
-                  <span className="text-faint">/3</span>
-                </span>
-                <span className="mt-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted">today</span>
-              </div>
+        <div className="relative z-10">
+          <div className="flex items-center justify-between">
+            <p className="dim text-[11px] font-semibold tracking-[0.28em]">VELOCITY</p>
+            <div className="flex items-center gap-2">
+              {!pro ? (
+                <Link href="/pro" className="glass-chip hit flex h-9 items-center px-3 text-[13px] font-semibold tracking-[0.08em] transition active:scale-95">
+                  PRO
+                </Link>
+              ) : (
+                <span className="glass-chip flex h-9 items-center px-3 text-[13px] font-semibold tracking-[0.08em]">PRO</span>
+              )}
+              <Link href="/settings" aria-label="Settings" className="glass-chip hit flex h-9 w-9 items-center justify-center transition active:scale-95">
+                <Settings className="h-[18px] w-[18px]" />
+              </Link>
             </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-[44px] font-bold leading-none tracking-[-0.03em] tabular-nums">{streak.current}</p>
-              <p className="mt-1.5 text-[15px] font-medium">day streak</p>
-              <p className="mt-1 text-[13px] text-muted tabular-nums">
-                Best {streak.longest} · {streak.totalExecutedDays} days executed
+          </div>
+
+          <p className="dim mt-7 text-[11px] font-semibold uppercase tracking-[0.22em]">{dateLine}</p>
+          <div className="mt-1 flex items-end justify-between gap-2">
+            <div className="min-w-0">
+              <h1 className="hero-num font-[family-name:var(--font-display)] text-[92px] italic leading-[0.78] tracking-[-0.04em] tabular-nums">
+                <span className="sr-only">Today. </span>
+                {streak.current}
+                <span className="sr-only"> day streak</span>
+              </h1>
+              <p className="mt-3 text-[11px] font-semibold tracking-[0.22em]">DAY STREAK</p>
+              <p className="dim mt-1 text-[13px] tabular-nums">
+                Best {streak.longest} · {streak.totalExecutedDays} executed
               </p>
+            </div>
+            <div className="relative shrink-0">
+              <DayDial wake={todayLog.completed.wake} gym={todayLog.completed.gym} deep={todayLog.completed.deepWork} />
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="font-[family-name:var(--font-display)] text-[28px] italic leading-none tabular-nums">
+                  {doneCount}
+                  <span className="dim">/3</span>
+                </span>
+              </div>
             </div>
           </div>
           {coach.milestone && (
-            <div className="mt-5 flex items-center justify-between gap-3 rounded-[14px] bg-fill px-3.5 py-3">
-              <p className="text-[13px] leading-snug text-muted">
-                <span className="font-semibold text-ink">
-                  {coach.milestone.remaining} {coach.milestone.remaining === 1 ? "day" : "days"}
-                </span>{" "}
-                to your {coach.milestone.target}-day milestone
-              </p>
-              <span className="text-[13px] font-semibold tabular-nums text-muted">
-                {streak.current}/{coach.milestone.target}
-              </span>
+            <div className="hero-chip mt-6 rounded-[18px] px-4 py-3">
+              <div className="flex items-baseline justify-between gap-3">
+                <p className="text-[13px] leading-snug">
+                  <span className="font-[family-name:var(--font-display)] text-[20px] italic">{coach.milestone.remaining}</span>{" "}
+                  {coach.milestone.remaining === 1 ? "day" : "days"} to a {coach.milestone.target}-day streak
+                </p>
+                <span className="font-[family-name:var(--font-display)] text-[18px] italic tabular-nums">
+                  {streak.current}/{coach.milestone.target}
+                </span>
+              </div>
+              <div className="mt-2.5 h-[3px] overflow-hidden rounded-full bg-current/15">
+                <div
+                  className="h-full rounded-full bg-current"
+                  style={{ width: `${Math.min(100, (streak.current / coach.milestone.target) * 100)}%` }}
+                />
+              </div>
             </div>
           )}
-        </Card>
+        </div>
+      </section>
 
-        {/* Coach */}
+      <div className="mt-8 flex flex-col gap-8">
         <section>
-          <SectionLabel>Coach</SectionLabel>
-          <Card className="p-5">
-            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-semibold ${tone.soft} ${tone.text}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${tone.dot}`} />
-              {tone.label}
-            </span>
-            <p className="mt-3 text-[22px] font-bold leading-tight tracking-[-0.01em] [text-wrap:balance]">
-              {coach.directive.headline}
-            </p>
-            <p className="mt-2 text-[15px] leading-relaxed text-muted">{coach.directive.body}</p>
-            {focus && (
-              <button
-                onClick={focus.run}
-                className="mt-4 flex h-11 w-full items-center justify-center gap-1 rounded-[14px] bg-ink text-[15px] font-semibold text-bg transition active:scale-[0.98]"
-              >
-                {focus.label}
-                <ChevronRight className="h-4 w-4" />
-              </button>
-            )}
-          </Card>
+          <SectionLabel index="01">Coach</SectionLabel>
+          <div className="flex gap-4 px-1">
+            <div className={`mt-1 w-[3px] shrink-0 rounded-full ${tone.dot}`} />
+            <div className="min-w-0 flex-1">
+              <p className={`text-[11px] font-semibold uppercase tracking-[0.2em] ${tone.text}`}>{tone.label}</p>
+              <p className="mt-2 font-[family-name:var(--font-display)] text-[34px] italic leading-[1.05] [text-wrap:balance]">
+                {coach.directive.headline}
+              </p>
+              <p className="mt-3 text-[15px] leading-relaxed text-muted">{coach.directive.body}</p>
+              {focus && (
+                <button
+                  onClick={focus.run}
+                  className="btn-accent mt-4 flex h-12 w-full items-center justify-center gap-1 rounded-full text-[15px] font-semibold transition active:scale-[0.98]"
+                >
+                  {focus.label}
+                  <ChevronRight className="h-4 w-4" />
+                </button>
+              )}
+            </div>
+          </div>
         </section>
+
+        {trialEndsSoon(entitlement, now) ? (
+          <Link href="/pro" className="card block border-l-4 border-l-accent bg-accent-soft px-5 py-4">
+            <p className="font-[family-name:var(--font-display)] text-[26px] italic leading-tight">Your wake reminder stops with the trial.</p>
+            <p className="mt-1 text-[14px] leading-relaxed text-muted">
+              Lights out at {displayClock(lightsOut(upcomingStandard(profile)))} is part of the trial. Keep both on the yearly plan.
+            </p>
+            <p className="mt-3 text-[14px] font-semibold text-accent">Stay on yearly</p>
+          </Link>
+        ) : !pro && (doneCount > 0 || windowState === "closed") ? (
+          <Link href="/pro" className="card block border-l-4 border-l-accent bg-accent-soft px-5 py-4">
+            <p className="font-[family-name:var(--font-display)] text-[26px] italic leading-tight">
+              Lights out at {displayClock(lightsOut(upcomingStandard(profile)))}.
+            </p>
+            <p className="mt-1 text-[14px] leading-relaxed text-muted">
+              Pro sets that reminder and the wake alarm inside your window. Wake, train, and deep work stay free.
+            </p>
+            <p className="mt-3 text-[14px] font-semibold text-accent">
+              {trialAvailable(entitlement, now) ? "Start the 7-day trial" : "See Pro"}
+            </p>
+          </Link>
+        ) : null}
+
+        {pro && isExecuted(todayLog) && (
+          <DayShare
+            dateLabel={dateLine}
+            executed={isExecuted(todayLog)}
+            grade={score.grade}
+            streak={streak.current}
+            wake={todayLog.completed.wake}
+            gym={todayLog.completed.gym}
+            deepWork={todayLog.completed.deepWork}
+            partnerName={profile.partnerName ?? ""}
+            onPartner={actions.setPartnerName}
+          />
+        )}
 
         {/* Non-negotiables */}
         <section>
-          <SectionLabel>Non-negotiables</SectionLabel>
-          <Card className="divide-y divide-line overflow-hidden">
+          <SectionLabel index="02">Non-negotiables</SectionLabel>
+          <div className="flex flex-col gap-3">
             {/* Wake */}
             <TaskRow
-              icon={<Sunrise className="h-[22px] w-[22px] text-amber" />}
-              tint="bg-amber-soft"
+              index="01"
+              bar="bg-amber"
               title={`Wake by ${displayClock(profile.wakeTarget)}`}
               detailTone={todayLog.wake && !todayLog.wake.onTime ? "bad" : todayLog.completed.wake ? "good" : "muted"}
               detail={
                 todayLog.wake
                   ? `Logged ${wakeStamp ? formatClock(wakeStamp) : ""} · ${todayLog.wake.onTime ? "on time" : "missed window"}`
-                  : windowState === "early"
-                    ? `Window opens at ${opensAt}`
-                    : windowState === "open"
-                      ? `Window open until ${closesAt}`
-                      : `Window closed at ${closesAt}`
+                  : spillover
+                    ? `Last night's window closes at ${closesAt}`
+                    : windowState === "early"
+                      ? `Window opens at ${opensAt}`
+                      : windowState === "open"
+                        ? `Window open until ${closesAt}`
+                        : `Window closed at ${closesAt}`
               }
               action={
                 todayLog.completed.wake ? (
@@ -386,18 +470,20 @@ export default function Page() {
                   )
                 ) : todayLog.wake ? (
                   canUndoWake ? <PillButton variant="soft" onClick={() => act.undo("wake")}>Undo</PillButton> : null
-                ) : windowState === "closed" ? null : (
-                  <PillButton onClick={act.logWake} disabled={windowState === "early"}>
+                ) : spillover || windowState !== "closed" ? (
+                  <PillButton onClick={act.logWake} disabled={!spillover && windowState === "early"}>
                     I&apos;m up
                   </PillButton>
+                ) : (
+                  <PillButton onClick={act.logWake}>Log wake-up</PillButton>
                 )
               }
             />
 
             {/* Gym */}
             <TaskRow
-              icon={<Dumbbell className="h-[22px] w-[22px] text-bad" />}
-              tint="bg-bad-soft"
+              index="02"
+              bar="bg-bad"
               title="Train"
               detailTone={todayLog.completed.gym ? "good" : "muted"}
               detail={gymStamp ? `Checked in ${formatClock(gymStamp)}` : "Check in when you arrive"}
@@ -416,15 +502,17 @@ export default function Page() {
 
             {/* Deep work */}
             <TaskRow
-              icon={<Brain className="h-[22px] w-[22px] text-calm" />}
-              tint="bg-calm-soft"
+              index="03"
+              bar="bg-calm"
               title={`Deep work · ${deepTargetMin} min`}
               detailTone={todayLog.completed.deepWork ? "good" : "muted"}
               detail={
                 session
                   ? `${focusMode ? "Focus on" : "In session"} · ${formatDuration(liveSeconds)} · ${deepMinLabel(deepSeconds)}`
-                  : deepSeconds > 0
-                    ? deepMinLabel(deepSeconds)
+                  : todayLog.deepWork.sessions.length
+                    ? deepSeconds >= 60
+                      ? deepMinLabel(deepSeconds)
+                      : "Under a minute"
                     : "One task. Phone in another room."
               }
               action={
@@ -440,7 +528,7 @@ export default function Page() {
               }
               footer={
                 deepSeconds > 0 && !todayLog.completed.deepWork ? (
-                  <div className="ml-[58px] mt-3 h-1.5 overflow-hidden rounded-full bg-fill">
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-fill">
                     <div
                       className="h-full rounded-full bg-calm transition-[width] duration-1000 ease-linear"
                       style={{ width: `${deepPct * 100}%` }}
@@ -449,17 +537,18 @@ export default function Page() {
                 ) : null
               }
             />
-          </Card>
+          </div>
         </section>
 
         {/* Timed tasks */}
-        <TaskList log={todayLog} yesterday={state.logs[addDays(today, -1)]} now={now} actions={act} />
+        <TaskList log={todayLog} yesterday={state.logs[addDays(today, -1)]} now={now} pro={pro} actions={act} />
 
         {/* Week */}
         <section>
-          <SectionLabel>This week</SectionLabel>
-          <Card className="px-4 py-4">
-            <div className="grid grid-cols-7 gap-1">
+          <SectionLabel index="04">This week</SectionLabel>
+          <Card className="relative px-3 py-4">
+            <div className="pointer-events-none absolute left-7 right-7 top-[47px] h-px bg-line" />
+            <div className="relative grid grid-cols-7 gap-1">
               {week.map((key) => {
                 const log = state.logs[key];
                 const executed = isExecuted(log);
@@ -474,13 +563,13 @@ export default function Page() {
                     <span
                       className={`flex h-9 w-9 items-center justify-center rounded-full text-[13px] font-semibold tabular-nums ${
                         executed
-                          ? "bg-good text-card"
+                          ? "mark-good"
                           : beforeStart
                             ? "bg-transparent text-faint"
                             : count > 0
-                              ? "bg-accent-soft text-accent"
+                              ? "mark"
                               : "bg-fill text-faint"
-                      } ${isToday ? "ring-2 ring-ink ring-offset-2 ring-offset-card" : ""}`}
+                      } ${isToday ? "ring-2 ring-accent ring-offset-2 ring-offset-card" : ""}`}
                     >
                       {executed ? <Check className="h-4 w-4" strokeWidth={3} /> : beforeStart ? "·" : count}
                     </span>
@@ -493,28 +582,37 @@ export default function Page() {
 
         {/* Stats */}
         <section>
-          <SectionLabel>Execution</SectionLabel>
-          <div className="grid grid-cols-2 gap-3">
+          <SectionLabel index="05">Execution</SectionLabel>
+          <Card className="grid grid-cols-2 overflow-hidden">
             {[
               { label: "Grade", value: score.grade === "NEW" ? "New" : score.grade.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase()) },
               { label: "7-day", value: score.rolling7 === null ? "—" : `${score.rolling7}%` },
               { label: "30-day", value: score.rolling30 === null ? "—" : `${score.rolling30}%` },
               { label: "Best streak", value: `${streak.longest}` },
-            ].map((s) => (
-              <Card key={s.label} className="px-4 py-3.5">
-                <p className="text-[12px] font-semibold uppercase tracking-[0.06em] text-muted">{s.label}</p>
-                <p className="mt-1 text-[24px] font-bold leading-tight tracking-[-0.01em] tabular-nums">{s.value}</p>
-              </Card>
+            ].map((s, i) => (
+              <div key={s.label} className={`px-4 py-4 ${i % 2 === 0 ? "border-r border-line" : ""} ${i < 2 ? "border-b border-line" : ""}`}>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-muted">{s.label}</p>
+                <p className="mt-1 font-[family-name:var(--font-display)] text-[30px] italic leading-none tabular-nums">{s.value}</p>
+              </div>
             ))}
-          </div>
+          </Card>
         </section>
 
         {/* Patterns */}
-        {coach.insights.length > 0 && (
+        {(insights.length > 0 || lockedPatterns) && (
           <section>
-            <SectionLabel>Patterns</SectionLabel>
+            <SectionLabel index="06">Patterns</SectionLabel>
             <Card className="divide-y divide-line overflow-hidden">
-              {coach.insights.map((insight) => (
+              {lockedPatterns && (
+                <Link href="/pro" className="block px-4 py-4">
+                  <p className="text-[15px] font-semibold leading-snug">A pattern is showing.</p>
+                  <p className="mt-1 text-[14px] leading-relaxed text-muted">
+                    Pro names the weak link and the weekday you miss, so the next streak is built on purpose.
+                  </p>
+                  <p className="mt-2 text-[14px] font-semibold text-accent">Unlock with Pro</p>
+                </Link>
+              )}
+              {insights.map((insight) => (
                 <div key={insight.id} className="flex gap-3 px-4 py-4">
                   <span className={`mt-[7px] h-2 w-2 shrink-0 rounded-full ${INSIGHT_DOT[insight.tone]}`} />
                   <div className="min-w-0">

@@ -4,6 +4,8 @@
 
 import { AppLauncher } from "@capacitor/app-launcher";
 import { Capacitor } from "@capacitor/core";
+import { Share } from "@capacitor/share";
+import { AppReview } from "@capawesome/capacitor-app-review";
 import { Haptics, ImpactStyle, NotificationType } from "@capacitor/haptics";
 import { LocalNotifications } from "@capacitor/local-notifications";
 import type { UserProfile } from "@/types/velocity";
@@ -49,6 +51,11 @@ function setRemindersFlag(on: boolean): void {
   }
 }
 
+/** iOS treats a notification string as a format. A title like "100%" must not reach it raw. */
+function notificationText(value: string): string {
+  return value.replace(/%/g, "%%");
+}
+
 function hm(clock: string): { hour: number; minute: number } {
   const [hour, minute] = clock.split(":").map(Number);
   return { hour, minute };
@@ -63,14 +70,14 @@ export async function scheduleReminders(profile: UserProfile): Promise<void> {
     notifications: [
       {
         id: WAKE_ID,
-        title: "Feet on the floor.",
-        body: `It's ${displayClock(profile.wakeTarget)}. Log your wake-up within ${profile.wakeGraceMinutes} minutes to keep the streak.`,
+        title: notificationText("Feet on the floor."),
+        body: notificationText(`It's ${displayClock(profile.wakeTarget)}. Log your wake-up within ${profile.wakeGraceMinutes} minutes to keep the streak.`),
         schedule: { on: hm(profile.wakeTarget), allowWhileIdle: true },
       },
       {
         id: LIGHTS_OUT_ID,
-        title: "Lights out.",
-        body: `Phone down. Tomorrow starts at ${displayClock(profile.wakeTarget)}.`,
+        title: notificationText("Lights out."),
+        body: notificationText(`Phone down. Tomorrow starts at ${displayClock(profile.wakeTarget)}.`),
         schedule: { on: hm(bed), allowWhileIdle: true },
       },
     ],
@@ -112,8 +119,8 @@ export async function scheduleTaskAlarm(title: string, secondsFromNow: number): 
     notifications: [
       {
         id: TASK_ALARM_ID,
-        title: `Time's up: ${title}`,
-        body: "Wrap it up, or keep going on overtime.",
+        title: notificationText(`Time's up: ${title}`),
+        body: notificationText("Wrap it up, or keep going on overtime."),
         schedule: { at: new Date(Date.now() + secondsFromNow * 1000), allowWhileIdle: true },
       },
     ],
@@ -129,6 +136,34 @@ export async function disableReminders(): Promise<void> {
   setRemindersFlag(false);
   if (!isNative()) return;
   await LocalNotifications.cancel({ notifications: [{ id: WAKE_ID }, { id: LIGHTS_OUT_ID }] });
+}
+
+// ─── Rating and sending the day ──────────────────────────────────────────────
+
+/** Ask Apple for the in-app review dialog. Apple may ignore it. No-op in a browser. */
+export async function requestAppReview(): Promise<void> {
+  if (!isNative()) return;
+  await AppReview.requestReview().catch(() => {});
+}
+
+/** Hand the day's result to the share sheet. Falls back to the clipboard. */
+export async function shareText(text: string): Promise<"shared" | "copied" | "cancelled" | "failed"> {
+  try {
+    const can = await Share.canShare();
+    if (!can.value) throw new Error("unavailable");
+    await Share.share({ title: "Velocity", text, dialogTitle: "Send today" });
+    return "shared";
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err ?? "");
+    if (/cancel|in progress|abort/i.test(message)) return "cancelled";
+    if (!/unavailable|not available/i.test(message)) return "failed";
+    try {
+      await navigator.clipboard.writeText(text);
+      return "copied";
+    } catch {
+      return "failed";
+    }
+  }
 }
 
 // ─── Support ─────────────────────────────────────────────────────────────────

@@ -8,6 +8,7 @@ import { useVelocity } from "@/hooks/use-velocity";
 import { Card, SectionLabel, SubScreen } from "@/components/ui";
 import { APP_VERSION, SUPPORT_EMAIL } from "@/lib/app-config";
 import { lightsOut } from "@/lib/playbook";
+import { isPro } from "@/lib/billing";
 import { canChangeStandardToday, displayClock, upcomingStandard } from "@/lib/velocity";
 import { disableReminders, emailSupport, enableReminders, isNative, remindersEnabled, scheduleReminders } from "@/lib/native";
 import { FOCUS_SHORTCUTS, focusEnabled, openShortcutsEditor, runFocus, setFocusEnabled } from "@/lib/focus";
@@ -69,7 +70,8 @@ const selectClass =
 
 export default function SettingsPage() {
   const router = useRouter();
-  const { hydrated, profile, todayLog, actions } = useVelocity();
+  const { hydrated, profile, entitlement, todayLog, actions } = useVelocity();
+  const pro = isPro(entitlement, new Date());
   // What the user has chosen: today's standard, or the change queued for tomorrow.
   const chosen = upcomingStandard(profile);
   const [confirming, setConfirming] = useState(false);
@@ -92,9 +94,11 @@ export default function SettingsPage() {
 
   // Keep scheduled reminders in step with the wake target.
   useEffect(() => {
-    if (hydrated && reminders) scheduleReminders(chosen).catch(() => {});
+    if (!hydrated || !pro || !reminders) return;
+    // Today's alarm uses today's standard. A change queued for tomorrow does not move it.
+    scheduleReminders(profile).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hydrated, reminders, chosen.wakeTarget, chosen.wakeGraceMinutes]);
+  }, [hydrated, pro, reminders, profile.wakeTarget, profile.wakeGraceMinutes]);
 
   const toggleReminders = async (on: boolean) => {
     if (on) {
@@ -112,6 +116,27 @@ export default function SettingsPage() {
   return (
     <SubScreen title="Settings">
       <div className="flex flex-col gap-7">
+        <section>
+          <SectionLabel>Velocity Pro</SectionLabel>
+          <Card className="overflow-hidden">
+            <Link href="/pro" className="flex items-center justify-between gap-4 px-4 py-4">
+              <span>
+                <span className="block text-[16px] font-semibold">{pro ? "Pro is active" : "Start a 7-day free trial"}</span>
+                <span className="mt-0.5 block text-[13px] leading-snug text-muted">
+                  {pro
+                    ? entitlement?.expiresAt
+                      ? native
+                        ? `Through ${new Date(entitlement.expiresAt).toLocaleDateString(undefined, { month: "long", day: "numeric" })}. Cancel in iPhone Settings.`
+                        : `Through ${new Date(entitlement.expiresAt).toLocaleDateString(undefined, { month: "long", day: "numeric" })}. This browser keeps the plan on this device.`
+                      : "The full list, patterns, reminders, and Focus."
+                    : "The task list, coach patterns, reminders, and Focus. The three daily tasks stay free."}
+                </span>
+              </span>
+              <ChevronRight className="h-4 w-4 shrink-0 text-faint" />
+            </Link>
+          </Card>
+        </section>
+
         <section>
           <SectionLabel>Your standard</SectionLabel>
           <Card className="divide-y divide-line overflow-hidden">
@@ -163,7 +188,24 @@ export default function SettingsPage() {
           </p>
         </section>
 
-        {native && (
+        {native && !pro && (
+          <section>
+            <SectionLabel>Reminders and Focus</SectionLabel>
+            <Card className="overflow-hidden">
+              <Link href="/pro" className="flex items-center justify-between gap-4 px-4 py-4">
+                <span>
+                  <span className="block text-[16px]">Part of Pro</span>
+                  <span className="mt-0.5 block text-[13px] leading-snug text-muted">
+                    Wake-up and lights-out reminders, and Focus while the timer runs.
+                  </span>
+                </span>
+                <ChevronRight className="h-4 w-4 shrink-0 text-faint" />
+              </Link>
+            </Card>
+          </section>
+        )}
+
+        {native && pro && (
           <section>
             <SectionLabel>Reminders</SectionLabel>
             <Card className="overflow-hidden">
@@ -179,7 +221,7 @@ export default function SettingsPage() {
           </section>
         )}
 
-        {native && (
+        {native && pro && (
           <section>
             <SectionLabel>Focus mode</SectionLabel>
             <Card className="overflow-hidden">
@@ -289,12 +331,19 @@ export default function SettingsPage() {
               Privacy policy
               <ChevronRight className="h-4 w-4 text-faint" />
             </Link>
+            <Link href="/terms" className="flex items-center justify-between px-4 py-3.5 text-[16px]">
+              Terms
+              <ChevronRight className="h-4 w-4 text-faint" />
+            </Link>
             {SUPPORT_EMAIL && (
               <button
                 onClick={() => void emailSupport()}
                 className="flex w-full items-center justify-between px-4 py-3.5 text-left text-[16px]"
               >
-                Email support
+                <span>
+                  Email support
+                  <span className="mt-0.5 block text-[13px] text-muted">{SUPPORT_EMAIL}</span>
+                </span>
                 <ChevronRight className="h-4 w-4 text-faint" />
               </button>
             )}

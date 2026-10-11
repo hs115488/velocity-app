@@ -10,6 +10,7 @@ import {
   finalizeLog,
   gradeFor,
   isExecuted,
+  isWakeSpillover,
   wakeWindowState,
 } from "@/lib/velocity";
 import { at, full, log, profile, state, TODAY } from "./helpers";
@@ -53,6 +54,14 @@ describe("wake window", () => {
 
   it("never counts a tap between midnight and 4 AM", () => {
     expect(evaluateWake(profile({ wakeTarget: "04:30" }), at(3, 30)).onTime).toBe(false);
+  });
+
+  it("keeps a late-night grace period open after midnight", () => {
+    const night = profile({ wakeTarget: "23:50", wakeGraceMinutes: 30 });
+    expect(isWakeSpillover(night, at(0, 10))).toBe(true);
+    expect(evaluateWake(night, at(0, 10))).toEqual({ minutesOff: 20, onTime: true });
+    expect(isWakeSpillover(night, at(0, 21))).toBe(false);
+    expect(evaluateWake(night, at(0, 21)).onTime).toBe(false);
   });
 });
 

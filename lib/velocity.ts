@@ -30,7 +30,9 @@ export function fromDateKey(key: DateKey): Date {
 
 export function addDays(key: DateKey, days: number): DateKey {
   const d = fromDateKey(key);
+  if (Number.isNaN(d.getTime())) return key;
   d.setDate(d.getDate() + days);
+  if (Number.isNaN(d.getTime())) return key;
   return toDateKey(d);
 }
 
@@ -86,11 +88,12 @@ export function createDefaultProfile(today: DateKey = toDateKey()): UserProfile 
     deepWorkTargetMinutes: 90,
     startDate: today,
     createdAt: new Date().toISOString(),
+    onboarded: false,
   };
 }
 
 export function createInitialState(): VelocityState {
-  return { version: 1, profile: createDefaultProfile(), logs: {} };
+  return { version: 1, profile: createDefaultProfile(), logs: {}, entitlement: { productId: null, expiresAt: null, trialUsed: false } };
 }
 
 export function createEmptyLog(date: DateKey): DailyLog {
@@ -113,7 +116,7 @@ const EARLIEST_WINDOW_MINUTES = 4 * 60;
 export type WakeWindowState = "early" | "open" | "closed";
 
 /** Minutes after midnight when today's wake window opens. One rule, shared by the button, the scoring and the coach. */
-export function wakeWindowOpensAt(profile: UserProfile): number {
+export function wakeWindowOpensAt(profile: Pick<UserProfile, "wakeTarget">): number {
   const target = clockToMinutes(profile.wakeTarget);
   // A target before 4 AM opens at the target itself.
   return Math.max(target - WAKE_OPENS_EARLY_MINUTES, Math.min(target, EARLIEST_WINDOW_MINUTES));
@@ -132,16 +135,32 @@ export function wakeWindowState(profile: UserProfile, at: Date): WakeWindowState
   return "closed";
 }
 
+/**
+ * Grace that runs past midnight. 11:50 PM plus 30 minutes is still open at 12:10 AM,
+ * and that log belongs to the day that held the target.
+ */
+export function isWakeSpillover(profile: UserProfile, at: Date): boolean {
+  const closes = wakeWindowClosesAt(profile);
+  if (closes < 24 * 60) return false;
+  return at.getHours() * 60 + at.getMinutes() <= closes - 24 * 60;
+}
+
 /** Evaluate a wake log at the moment of logging. On time means inside the window, nothing else. */
 export function evaluateWake(profile: UserProfile, at: Date) {
-  const minutesOff = at.getHours() * 60 + at.getMinutes() - clockToMinutes(profile.wakeTarget);
-  return { minutesOff, onTime: wakeWindowState(profile, at) === "open" };
+  const nowMin = at.getHours() * 60 + at.getMinutes();
+  const target = clockToMinutes(profile.wakeTarget);
+  const spill = isWakeSpillover(profile, at);
+  return {
+    minutesOff: spill ? nowMin + 24 * 60 - target : nowMin - target,
+    onTime: spill || wakeWindowState(profile, at) === "open",
+  };
 }
 
 export function closedSessionMinutes(log: DailyLog): number {
   return log.deepWork.sessions.reduce((sum, s) => {
-    if (!s.endedAt) return sum;
-    return sum + (new Date(s.endedAt).getTime() - new Date(s.startedAt).getTime()) / 60_000;
+    if (!s?.endedAt || typeof s.startedAt !== "string") return sum;
+    const minutes = (new Date(s.endedAt).getTime() - new Date(s.startedAt).getTime()) / 60_000;
+    return Number.isFinite(minutes) && minutes > 0 ? sum + minutes : sum;
   }, 0);
 }
 
@@ -324,7 +343,10 @@ function runEndingAt(logs: Record<DateKey, DailyLog>, end: DateKey): number {
   let cursor = end;
   while (isExecuted(logs[cursor])) {
     count++;
-    cursor = addDays(cursor, -1);
+    if (count > 3660) break;
+    const next = addDays(cursor, -1);
+    if (next === cursor) break;
+    cursor = next;
   }
   return count;
 }

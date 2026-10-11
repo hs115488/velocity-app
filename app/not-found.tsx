@@ -9,7 +9,7 @@ export default function NotFound() {
       <p className="mt-2 text-[15px] text-muted">This screen doesn&apos;t exist.</p>
       <Link
         href="/"
-        className="mt-6 flex h-11 items-center rounded-[14px] bg-ink px-6 text-[15px] font-semibold text-bg transition active:scale-[0.98]"
+        className="btn-accent mt-6 flex h-11 items-center rounded-[14px] px-6 text-[15px] font-semibold transition active:scale-[0.98]"
       >
         Back to Today
       </Link>

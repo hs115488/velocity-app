@@ -2,7 +2,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import type { DateKey, TaskId, UserProfile, VelocityState } from "@/types/velocity";
+import type { DateKey, Entitlement, TaskId, UserProfile, VelocityState } from "@/types/velocity";
 import { STORAGE_KEY, clearState, loadState, parseState, saveState } from "@/lib/storage";
 import {
   activeSession,
@@ -16,11 +16,17 @@ import {
   createInitialState,
   evaluateWake,
   finalizeLog,
+  isExecuted,
+  isWakeSpillover,
   toDateKey,
   wakeWindowState,
 } from "@/lib/velocity";
+import { disableReminders, remindersEnabled, requestAppReview } from "@/lib/native";
+import { focusEnabled, setFocusEnabled } from "@/lib/focus";
+import { syncPlan } from "@/lib/store";
 import * as tasks from "@/lib/tasks";
 import { pauseAllTasks } from "@/lib/tasks";
+import { canAddTask, canStartTask, isPro } from "@/lib/billing";
 import type { DailyLog } from "@/types/velocity";
 
 /** Mis-taps happen. Wake and gym logs can be undone for this long, then they're final. */
@@ -56,15 +62,44 @@ export function useVelocity() {
   // Sessions left running on a past day (app closed mid-block) are closed out.
   useEffect(() => {
     let live = true;
-    loadState().then((loaded) => {
+    loadState().then(async (loaded) => {
       if (!live) return;
-      setState(rollover(loaded, toDateKey(), new Date()));
+      const rolled = rollover(loaded, toDateKey(), new Date());
+      setState(rolled);
       setHydrated(true);
+      const synced = await syncPlan(rolled.entitlement);
+      if (!live || synced.status !== "set") return;
+      setState((prev) =>
+        JSON.stringify(prev.entitlement) === JSON.stringify(synced.entitlement) ? prev : { ...prev, entitlement: synced.entitlement },
+      );
     });
     return () => {
       live = false;
     };
   }, []);
+
+  // Ask StoreKit again when the app comes forward, so a renewal or refund is not stuck on the first expiration.
+  useEffect(() => {
+    if (!hydrated) return;
+    const refresh = () => {
+      if (document.visibilityState !== "visible") return;
+      void syncPlan(state.entitlement).then((synced) => {
+        if (synced.status !== "set") return;
+        setState((prev) =>
+          JSON.stringify(prev.entitlement) === JSON.stringify(synced.entitlement) ? prev : { ...prev, entitlement: synced.entitlement },
+        );
+      });
+    };
+    document.addEventListener("visibilitychange", refresh);
+    return () => document.removeEventListener("visibilitychange", refresh);
+  }, [hydrated, state.entitlement]);
+
+  // Reminders and Focus are part of Pro. When it ends, turn them off. The switches are gone by then.
+  useEffect(() => {
+    if (!hydrated || isPro(state.entitlement, new Date())) return;
+    if (remindersEnabled()) void disableReminders();
+    if (focusEnabled()) setFocusEnabled(false);
+  }, [hydrated, state.entitlement]);
 
   // Persist every change after hydration. Writes are queued in order by the storage layer.
   useEffect(() => {
@@ -106,13 +141,13 @@ export function useVelocity() {
    * so a tap seconds after midnight never lands on yesterday.
    */
   const mutateToday = useCallback(
-    (fn: (log: VelocityState["logs"][string], profile: UserProfile) => VelocityState["logs"][string]) => {
+    (fn: (log: DailyLog, profile: UserProfile, entitlement: VelocityState["entitlement"]) => DailyLog) => {
       const key = toDateKey();
       setToday((prev) => (prev === key ? prev : key));
       setState((prev) => {
         const base = rollover(prev, key, new Date());
         const current = base.logs[key] ?? createEmptyLog(key);
-        const next = finalizeLog(fn(current, base.profile), base.profile);
+        const next = finalizeLog(fn(current, base.profile, base.entitlement), base.profile);
         return { ...base, logs: { ...base.logs, [key]: next } };
       });
     },
@@ -120,13 +155,25 @@ export function useVelocity() {
   );
 
   const logWake = useCallback(() => {
-    mutateToday((log, profile) => {
-      const now = new Date();
-      if (log.wake) return log; // one shot per day
-      if (wakeWindowState(profile, now) === "early") return log; // can't log before the window opens
-      return { ...log, wake: { loggedAt: now.toISOString(), ...evaluateWake(profile, now) } };
+    const now = new Date();
+    const key = toDateKey(now);
+    setToday((prev) => (prev === key ? prev : key));
+    setState((prev) => {
+      const base = rollover(prev, key, now);
+      const yesterday = addDays(key, -1);
+      const spill =
+        isWakeSpillover(base.profile, now) && yesterday >= base.profile.startDate && !base.logs[yesterday]?.wake;
+      const target = spill ? yesterday : key;
+      const current = base.logs[target] ?? createEmptyLog(target);
+      if (current.wake) return prev;
+      if (!spill && wakeWindowState(base.profile, now) === "early") return prev;
+      const next = finalizeLog(
+        { ...current, wake: { loggedAt: now.toISOString(), ...evaluateWake(base.profile, now) } },
+        base.profile,
+      );
+      return { ...base, logs: { ...base.logs, [target]: next } };
     });
-  }, [mutateToday]);
+  }, []);
 
   const checkInGym = useCallback(() => {
     mutateToday((log) =>
@@ -150,7 +197,10 @@ export function useVelocity() {
 
   const addTask = useCallback(
     (title: string, minutes: number) => {
-      mutateToday((log) => tasks.addTask(log, { id: tasks.newTaskId(), title, minutes, now: new Date() }));
+      mutateToday((log, _profile, entitlement) => {
+        if (!canAddTask(tasks.tasksOf(log).length, entitlement, new Date())) return log;
+        return tasks.addTask(log, { id: tasks.newTaskId(), title, minutes, now: new Date() });
+      });
     },
     [mutateToday],
   );
@@ -158,7 +208,9 @@ export function useVelocity() {
   /** Starting a task starts (or continues) the deep work timer too. */
   const startTask = useCallback(
     (id: string) => {
-      mutateToday((log) => {
+      mutateToday((log, _profile, entitlement) => {
+        const index = tasks.tasksOf(log).findIndex((task) => task.id === id);
+        if (index < 0 || !canStartTask(index, entitlement, new Date())) return log;
         const now = new Date();
         const started = tasks.startTask(log, id, now);
         return started === log ? log : openSession(started, now);
@@ -201,15 +253,18 @@ export function useVelocity() {
     [mutateToday],
   );
 
-  /** Bring yesterday's unfinished tasks onto today. */
+  /** Bring yesterday's unfinished tasks onto today. Close out yesterday first so a timer left running stops at midnight. */
   const carryOverTasks = useCallback(() => {
-    const yesterday = addDays(toDateKey(), -1);
+    const key = toDateKey();
+    setToday((prev) => (prev === key ? prev : key));
     setState((prev) => {
-      const from = prev.logs[yesterday];
-      const key = toDateKey();
-      const current = prev.logs[key] ?? createEmptyLog(key);
-      const next = tasks.carryOver(current, from, new Date(), tasks.newTaskId);
-      return next === current ? prev : { ...prev, logs: { ...prev.logs, [key]: finalizeLog(next, prev.profile) } };
+      const now = new Date();
+      const base = rollover(prev, key, now);
+      const current = base.logs[key] ?? createEmptyLog(key);
+      if (!isPro(base.entitlement, now)) return base;
+      const next = tasks.carryOver(current, base.logs[addDays(key, -1)], now, tasks.newTaskId);
+      if (next === current) return base;
+      return { ...base, logs: { ...base.logs, [key]: finalizeLog(next, base.profile) } };
     });
   }, []);
 
@@ -243,10 +298,42 @@ export function useVelocity() {
     });
   }, []);
 
+  const completeOnboarding = useCallback(
+    (input: { name: string; wakeTarget: UserProfile["wakeTarget"]; deepWorkTargetMinutes: number }) => {
+      const name = input.name.trim().slice(0, 40) || "Operator";
+      updateProfile({
+        name,
+        wakeTarget: input.wakeTarget,
+        deepWorkTargetMinutes: input.deepWorkTargetMinutes,
+        onboarded: true,
+        startDate: toDateKey(),
+      });
+    },
+    [updateProfile],
+  );
+
+  const applyEntitlement = useCallback((entitlement: Entitlement) => {
+    setState((prev) => ({ ...prev, entitlement }));
+  }, []);
+
+  const setPartnerName = useCallback((name: string) => {
+    const partnerName = name.trim().slice(0, 40);
+    setState((prev) => ({ ...prev, profile: { ...prev.profile, partnerName: partnerName || undefined } }));
+  }, []);
+
   const resetAll = useCallback(() => {
     void clearState(); // queued ahead of the save of the fresh state below
     setState(createInitialState());
   }, []);
+
+  // The first fully executed day is the moment to ask for a rating. Once.
+  useEffect(() => {
+    if (!hydrated || state.profile.reviewRequested || !isExecuted(state.logs[today])) return;
+    setState((prev) =>
+      prev.profile.reviewRequested ? prev : { ...prev, profile: { ...prev.profile, reviewRequested: true } },
+    );
+    void requestAppReview();
+  }, [hydrated, state, today]);
 
   const streak = useMemo(() => computeStreak(state, today), [state, today]);
   const score = useMemo(() => computeScore(state, today), [state, today]);
@@ -256,6 +343,7 @@ export function useVelocity() {
     state,
     today,
     profile: state.profile,
+    entitlement: state.entitlement,
     todayLog,
     streak,
     score,
@@ -266,6 +354,9 @@ export function useVelocity() {
       stopDeepWork,
       undo,
       updateProfile,
+      completeOnboarding,
+      applyEntitlement,
+      setPartnerName,
       resetAll,
       addTask,
       startTask,

@@ -6,7 +6,7 @@
  * (bg-card, text-muted, border-line, ...). Dark mode only swaps the values.
  */
 @theme {
-  --color-bg: #f5f4f0;
+  --color-bg: #f3ebe4;
   --color-card: #ffffff;
   --color-ink: #17171b;
   --color-muted: #5f5f67;
@@ -25,14 +25,31 @@
   --color-calm: #4263eb;
   --color-calm-soft: #e8edfd;
 
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Inter", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
-  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Inter", "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-sans: var(--font-outfit), -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: var(--font-serif), "Iowan Old Style", Georgia, serif;
+}
+
+:root {
+  --shadow-card: 0 14px 34px rgba(62, 28, 8, 0.08), 0 1px 2px rgba(62, 28, 8, 0.05);
+  --hero-track: rgba(255, 255, 255, 0.2);
+  --hero-stroke: #ff8a3d;
+  --dial-wake: #f6c453;
+  --dial-train: #ff8a3d;
+  --dial-deep: #9eb0ff;
+  --dial-off: rgba(255, 255, 255, 0.16);
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-bg: #0d0d0f;
-    --color-card: #17171a;
+    --color-bg: #09090b;
+    --color-card: #18181c;
+    --shadow-card: 0 16px 40px rgba(0, 0, 0, 0.45);
+    --hero-track: rgba(26, 12, 6, 0.22);
+    --hero-stroke: #1a0c06;
+    --dial-wake: #1a0c06;
+    --dial-train: #5c2e12;
+    --dial-deep: #3b2418;
+    --dial-off: rgba(26, 12, 6, 0.22);
     --color-ink: #f4f4f5;
     --color-muted: #a1a1aa;
     --color-faint: #8b8b94;
@@ -60,7 +77,9 @@
     -webkit-tap-highlight-color: transparent;
   }
   body {
-    background: var(--color-bg);
+    background-color: var(--color-bg);
+    background-image: radial-gradient(780px 420px at 50% -80px, rgba(194, 65, 12, 0.2), transparent 70%);
+    background-attachment: fixed;
     color: var(--color-ink);
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
@@ -78,9 +97,120 @@
  * Invisible touch margin: grows a control's tappable area to at least 44pt
  * (Apple's minimum) without changing how it looks.
  */
+@media (prefers-color-scheme: dark) {
+  body {
+    background-image: radial-gradient(780px 440px at 50% -100px, rgba(255, 122, 51, 0.32), transparent 68%);
+  }
+}
+
 @layer components {
+  .card {
+    border-radius: 22px;
+    background: var(--color-card);
+    box-shadow: var(--shadow-card);
+    border: 1px solid color-mix(in srgb, var(--color-ink) 7%, transparent);
+  }
+  .hero-card {
+    position: relative;
+    overflow: hidden;
+    border-radius: 28px;
+    color: #fff;
+    background:
+      radial-gradient(90% 80% at 100% 0%, rgba(255, 122, 51, 0.55), transparent 56%),
+      linear-gradient(165deg, #3a1d12 0%, #16161a 64%);
+    box-shadow: 0 22px 50px rgba(194, 65, 12, 0.24);
+  }
+  .hero-card .dim { color: rgba(255, 255, 255, 0.7); }
+  .hero-num { color: var(--hero-stroke); }
+  .hero-chip { background: rgba(255, 255, 255, 0.12); }
+  .hero-card::before {
+    content: "";
+    position: absolute;
+    z-index: 0;
+    width: 260px;
+    height: 260px;
+    right: -48px;
+    top: -80px;
+    border-radius: 999px;
+    background: radial-gradient(circle, rgba(255, 138, 61, 0.55), transparent 68%);
+    pointer-events: none;
+    animation: ember 7s ease-in-out infinite;
+  }
+  .hero-card::after {
+    content: "";
+    position: absolute;
+    z-index: 0;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0.22;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.55) 0.6px, transparent 0.6px);
+    background-size: 4px 4px;
+  }
+  .glass-chip {
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+    background: color-mix(in srgb, currentColor 10%, transparent);
+    color: inherit;
+  }
+  .glass-row {
+    border-radius: 18px;
+    border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+    background: color-mix(in srgb, currentColor 8%, transparent);
+  }
+  .btn-accent {
+    background: var(--color-accent);
+    color: #fff;
+    box-shadow: 0 8px 18px rgba(194, 65, 12, 0.32);
+  }
+  .mark {
+    background: var(--color-accent);
+    color: #fff;
+    box-shadow: 0 6px 14px rgba(194, 65, 12, 0.28);
+  }
+  .mark-good {
+    background: var(--color-good);
+    color: #fff;
+    box-shadow: 0 6px 14px rgba(35, 122, 54, 0.32);
+  }
   .hit { position: relative; }
   .hit::after { content: ""; position: absolute; inset: -8px; }
   .hit-y { position: relative; }
   .hit-y::after { content: ""; position: absolute; inset: -6px 0; }
+}
+
+@media (prefers-color-scheme: dark) {
+  .hero-card {
+    color: #1a0c06;
+    background:
+      radial-gradient(80% 70% at 100% 0%, rgba(255, 236, 214, 0.5), transparent 50%),
+      linear-gradient(165deg, #ffb07a 0%, #ff7a33 46%, #e85d04 100%);
+    box-shadow: 0 22px 48px rgba(255, 122, 51, 0.34);
+  }
+  .hero-card .dim { color: rgba(26, 12, 6, 0.68); }
+  .hero-chip { background: rgba(26, 12, 6, 0.12); }
+  .hero-card::before {
+    background: radial-gradient(circle, rgba(255, 244, 230, 0.65), transparent 68%);
+  }
+  .btn-accent {
+    color: #1a0c06;
+    box-shadow: 0 8px 20px rgba(255, 122, 51, 0.38);
+  }
+  .mark { color: #1a0c06; box-shadow: 0 6px 14px rgba(255, 122, 51, 0.35); }
+  .mark-good { color: #05210f; box-shadow: 0 6px 14px rgba(74, 222, 128, 0.28); }
+}
+
+.btn-accent:disabled {
+  background: var(--color-fill);
+  color: var(--color-faint);
+  box-shadow: none;
+  opacity: 1;
+}
+
+@keyframes ember {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(-16px, 12px, 0) scale(1.1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hero-card::before { animation: none; }
 }

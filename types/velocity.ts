@@ -12,6 +12,12 @@ export interface UserProfile {
   deepWorkTargetMinutes: number;
   startDate: DateKey;
   createdAt: string; // ISO 8601
+  /** False until the first-run setup is finished. Missing on older saves means already set up. */
+  onboarded?: boolean;
+  /** The one person today's result is sent to. */
+  partnerName?: string;
+  /** Apple's review dialog was already requested after an executed day. */
+  reviewRequested?: boolean;
   /** A change to the standard made mid-day. It starts on `from` so today can't be bent to fit. */
   pending?: {
     wakeTarget?: ClockTime;
@@ -69,10 +75,22 @@ export interface DailyLog {
   };
 }
 
+/** Pro access saved on device. The App Store receipt is the source of truth once billing is connected. */
+export interface Entitlement {
+  productId: string | null;
+  /** ISO 8601 when Pro access ends. */
+  expiresAt: string | null;
+  /** A trial was already used. A second one is not offered. */
+  trialUsed: boolean;
+  /** Trial periods get the last-night warning. Paid periods do not. */
+  source?: "trial" | "paid";
+}
+
 export interface VelocityState {
   version: number;
   profile: UserProfile;
   logs: Record<DateKey, DailyLog>;
+  entitlement?: Entitlement;
 }
 
 export interface StreakMetrics {

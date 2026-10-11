@@ -123,6 +123,23 @@ describe("carry over", () => {
     const log = createEmptyLog(TODAY);
     expect(carryOver(log, toggleTaskDone(toggleTaskDone(base(), "a", at(9)), "b", at(9)), at(8), () => "x")).toBe(log);
   });
+
+  it("skips tasks already on today and still copies the rest", () => {
+    const yesterday = { ...base(), date: "2026-10-02" };
+    const today = addTask(createEmptyLog(TODAY), { id: "t", title: "Write proposal", minutes: 25, now: at(8) });
+    let n = 0;
+    const next = carryOver(today, yesterday, at(8), () => `new-${++n}`);
+    expect(tasksOf(next).map((t) => t.title)).toEqual(["Write proposal", "Review deck"]);
+    expect(carryOver(next, yesterday, at(8, 5), () => "again")).toBe(next);
+  });
+
+  it("does not charge time after midnight against a task left running", () => {
+    const yesterday = startTask({ ...base(), date: "2026-10-02" }, "a", new Date(2026, 9, 2, 23, 30));
+    let n = 0;
+    const today = carryOver(createEmptyLog(TODAY), yesterday, at(8), () => `new-${++n}`);
+    const copied = tasksOf(today).find((t) => t.title === "Write proposal");
+    expect(copied).toMatchObject({ minutes: 15, spentSeconds: 0, startedAt: null });
+  });
 });
 
 describe("midnight and saving", () => {

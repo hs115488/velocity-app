@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import { Card, SubScreen } from "@/components/ui";
-import { APP_NAME, PRIVACY_UPDATED } from "@/lib/app-config";
+import { APP_NAME, PRIVACY_UPDATED, SUPPORT_EMAIL } from "@/lib/app-config";
 
 export const metadata = { title: `Privacy Policy · ${APP_NAME}` };
 
@@ -29,7 +29,9 @@ export default function PrivacyPage() {
         <Section title="What the app stores">
           <p>
             Your wake-up logs, training check-ins, deep work sessions, tasks and settings are saved in the app&apos;s
-            storage on your device. They are never sent to us or to anyone else.
+            storage on your device. They are never sent to us. Send today hands that day&apos;s summary to the share
+            sheet so you can pass it to one person, or copies it if the sheet is unavailable. The name you type there
+            stays on this device.
           </p>
         </Section>
 
@@ -55,7 +57,9 @@ export default function PrivacyPage() {
 
         <Section title="Purchases">
           <p>
-            Any purchase is handled entirely by Apple through the App Store. We never receive your payment details.
+            Velocity Pro is an optional auto-renewing subscription sold by Apple. Payment, the free trial, and
+            cancellation are handled by the App Store. We never receive your payment details. A subscription status may
+            be saved on this device so the app knows what to unlock. Deleting the app does not cancel the subscription.
           </p>
         </Section>
 
@@ -74,7 +78,9 @@ export default function PrivacyPage() {
         </Section>
 
         <Section title="Contact">
-          <p>Questions about this policy: go to Settings and tap Email support.</p>
+          <p>
+            Questions about this policy: <a className="text-accent" href={`mailto:${SUPPORT_EMAIL}`}>{SUPPORT_EMAIL}</a>
+          </p>
         </Section>
       </Card>
     </SubScreen>

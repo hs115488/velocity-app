@@ -1,10 +1,12 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
+import Link from "next/link";
 import { Check, Pause, Play, Plus, Trash2 } from "lucide-react";
 import type { DailyLog, TimedTask } from "@/types/velocity";
 import { formatDuration } from "@/lib/velocity";
-import { MAX_TITLE_LENGTH, TASK_DURATIONS, tasksOf, taskElapsed, taskRemaining } from "@/lib/tasks";
+import { FREE_TASK_LIMIT } from "@/lib/billing";
+import { MAX_TITLE_LENGTH, TASK_DURATIONS, tasksOf, tasksToCarry, taskElapsed, taskRemaining } from "@/lib/tasks";
 import { Card, SectionLabel } from "@/components/ui";
 
 export interface TaskListActions {
@@ -26,11 +28,13 @@ function TaskRow({
   task,
   now,
   editing,
+  locked,
   actions,
 }: {
   task: TimedTask;
   now: Date;
   editing: boolean;
+  locked: boolean;
   actions: TaskListActions;
 }) {
   const running = task.startedAt !== null;
@@ -90,11 +94,15 @@ function TaskRow({
           >
             <Pause className="h-4 w-4" fill="currentColor" />
           </button>
+        ) : locked ? (
+          <Link href="/pro" className="hit shrink-0 text-[13px] font-semibold text-accent">
+            Pro
+          </Link>
         ) : (
           <button
             onClick={() => actions.startTask(task.id)}
             aria-label={`${started ? "Resume" : "Start"} "${task.title}"`}
-            className="hit flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ink text-bg transition active:scale-95"
+            className="hit btn-accent flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition active:scale-95"
           >
             <Play className="ml-0.5 h-4 w-4" fill="currentColor" />
           </button>
@@ -141,7 +149,7 @@ function AddTaskForm({ onAdd, autoFocus }: { onAdd: (title: string, minutes: num
           type="submit"
           disabled={!title.trim()}
           aria-label="Add task"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] bg-ink text-bg transition active:scale-95 disabled:opacity-30"
+          className="btn-accent flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] transition active:scale-95 disabled:opacity-30"
         >
           <Plus className="h-5 w-5" strokeWidth={2.5} />
         </button>
@@ -155,7 +163,7 @@ function AddTaskForm({ onAdd, autoFocus }: { onAdd: (title: string, minutes: num
             aria-checked={minutes === m}
             onClick={() => setMinutes(m)}
             className={`hit-y h-8 rounded-full px-3 text-[13px] font-semibold tabular-nums transition ${
-              minutes === m ? "bg-ink text-bg" : "bg-fill text-muted"
+              minutes === m ? "mark" : "bg-fill text-muted"
             }`}
           >
             {m === 60 ? "1 h" : `${m} min`}
@@ -170,23 +178,26 @@ export function TaskList({
   log,
   yesterday,
   now,
+  pro,
   actions,
 }: {
   log: DailyLog;
   yesterday: DailyLog | undefined;
   now: Date;
+  pro: boolean;
   actions: TaskListActions;
 }) {
   const [editing, setEditing] = useState(false);
   const list = tasksOf(log);
   const open = list.filter((t) => !t.done);
   const leftMinutes = open.reduce((sum, t) => sum + Math.max(0, taskRemaining(t, now)) / 60, 0);
-  const carryable = list.length === 0 ? tasksOf(yesterday).filter((t) => !t.done).length : 0;
+  const carryable = tasksToCarry(log, yesterday).length;
+  const atLimit = !pro && list.length >= FREE_TASK_LIMIT;
 
   return (
     <section>
       <div className="flex items-end justify-between">
-        <SectionLabel>Tasks</SectionLabel>
+        <SectionLabel index="03">Tasks</SectionLabel>
         {list.length > 0 && (
           <button onClick={() => setEditing((e) => !e)} className="hit px-1 pb-2 text-[14px] font-semibold text-accent">
             {editing ? "Done" : "Edit"}
@@ -202,8 +213,8 @@ export function TaskList({
                 : `${open.length} to go · ${fmtMinutes(leftMinutes)} left`}
             </p>
             <ul className="divide-y divide-line">
-              {list.map((t) => (
-                <TaskRow key={t.id} task={t} now={now} editing={editing} actions={actions} />
+              {list.map((t, index) => (
+                <TaskRow key={t.id} task={t} now={now} editing={editing} locked={!pro && index >= FREE_TASK_LIMIT} actions={actions} />
               ))}
             </ul>
           </>
@@ -213,18 +224,35 @@ export function TaskList({
           </p>
         )}
         {carryable > 0 && (
-          <div className="mx-4 mt-3 flex items-center justify-between gap-3 rounded-[14px] bg-fill px-3.5 py-3">
+            <div className="mx-4 my-3 flex items-center justify-between gap-3 rounded-[14px] bg-fill px-3.5 py-3">
             <p className="text-[13px] leading-snug text-muted">
               {carryable} unfinished from yesterday
             </p>
-            <button onClick={actions.carryOverTasks} className="hit shrink-0 text-[14px] font-semibold text-accent">
-              Bring over
-            </button>
+            {pro ? (
+              <button type="button" onClick={actions.carryOverTasks} className="hit shrink-0 text-[14px] font-semibold text-accent">
+                Bring over
+              </button>
+            ) : (
+              <Link href="/pro" className="hit shrink-0 text-[14px] font-semibold text-accent">
+                Bring over with Pro
+              </Link>
+            )}
           </div>
         )}
-        <div className={list.length > 0 ? "border-t border-line" : ""}>
-          <AddTaskForm onAdd={actions.addTask} />
-        </div>
+        {atLimit ? (
+          <div className="border-t border-line px-4 py-4">
+            <p className="text-[14px] leading-relaxed text-muted">
+              One task is included. Pro unlocks the rest of the list.
+            </p>
+            <Link href="/pro" className="mt-2 inline-flex text-[14px] font-semibold text-accent">
+              See Pro
+            </Link>
+          </div>
+        ) : (
+          <div className={list.length > 0 ? "border-t border-line" : ""}>
+            <AddTaskForm onAdd={actions.addTask} />
+          </div>
+        )}
       </Card>
       <p className="px-1 pt-2 text-[13px] leading-snug text-muted">
         Starting a task starts your deep work timer. Only one task runs at a time.

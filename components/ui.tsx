@@ -3,11 +3,19 @@ import { ChevronLeft } from "lucide-react";
 import type { ReactNode } from "react";
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`rounded-[22px] bg-card shadow-[0_1px_2px_rgba(0,0,0,0.04)] ${className}`}>{children}</div>;
+  return <div className={`card ${className}`}>{children}</div>;
 }
 
-export function SectionLabel({ children }: { children: ReactNode }) {
-  return <h2 className="px-1 pb-2 text-[13px] font-semibold uppercase tracking-[0.06em] text-muted">{children}</h2>;
+export function SectionLabel({ index, children }: { index?: string; children: ReactNode }) {
+  return (
+    <h2 className="flex items-center gap-3 px-1 pb-3">
+      {index && (
+        <span className="font-[family-name:var(--font-display)] text-[20px] italic leading-none text-accent">{index}</span>
+      )}
+      <span className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted">{children}</span>
+      <span className="h-px flex-1 bg-line" />
+    </h2>
+  );
 }
 
 export function AppIcon({ size = 56 }: { size?: number }) {
@@ -31,7 +39,7 @@ export function SubScreen({ title, back = { href: "/", label: "Today" }, childre
         <ChevronLeft className="h-5 w-5" />
         {back.label}
       </Link>
-      <h1 className="px-1 pb-6 pt-2 text-[34px] font-bold leading-none tracking-[-0.02em]">{title}</h1>
+      <h1 className="px-1 pb-6 pt-2 font-[family-name:var(--font-display)] text-[44px] italic leading-[0.95]">{title}</h1>
       {children}
     </main>
   );

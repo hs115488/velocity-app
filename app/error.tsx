@@ -17,7 +17,7 @@ export default function ErrorScreen({ error, reset }: { error: Error & { digest?
       </p>
       <button
         onClick={reset}
-        className="mt-6 h-11 rounded-[14px] bg-ink px-6 text-[15px] font-semibold text-bg transition active:scale-[0.98]"
+        className="btn-accent mt-6 h-11 rounded-[14px] px-6 text-[15px] font-semibold transition active:scale-[0.98]"
       >
         Try again
       </button>
